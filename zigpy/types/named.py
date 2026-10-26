@@ -227,7 +227,14 @@ class _Time(basic.uint32_t):
         return cls(int(seconds)) if 0 <= seconds < cls.INVALID else cls(cls.INVALID)
 
     def to_datetime(self) -> datetime:
-        return _ZIGBEE_EPOCH + timedelta(seconds=int(self))
+        seconds = int(self)
+        try:
+            # Convert from the Zigbee epoch (2000) to the Unix epoch (1970).
+            return datetime.fromtimestamp(seconds + 946684800, UTC)
+        except (OverflowError, OSError, ValueError):
+            pass
+
+        return _ZIGBEE_EPOCH + timedelta(0, seconds)
 
 
 class UTCTime(_Time):
