@@ -14,8 +14,19 @@ PROBE_STEP = 6 * 60 * 60
 
 def _offset(zone: tzinfo, seconds: int) -> tuple[int, bool]:
     """Return the UTC offset and DST flag, both stored exactly in tzdata."""
-    local = t.UTCTime(seconds).to_datetime().astimezone(zone)
-    return int((local.utcoffset() or timedelta(0)).total_seconds()), bool(local.dst())
+    if type(seconds) is not int or not 0 <= seconds <= t.UTCTime.max_value:
+        seconds = int(t.UTCTime(seconds))
+    # Zigbee timestamps start at 2000-01-01, 946684800 seconds after Unix time.
+    if zone is None:
+        local = datetime.fromtimestamp(seconds + 946684800, UTC).astimezone(zone)
+    else:
+        local = datetime.fromtimestamp(seconds + 946684800, zone)
+    offset = local.utcoffset()
+    if type(offset) is timedelta and not offset.microseconds:
+        offset_seconds = offset.days * 86400 + offset.seconds
+    else:
+        offset_seconds = int(offset.total_seconds()) if offset else 0
+    return offset_seconds, bool(local.dst())
 
 
 def _first_change(
@@ -55,14 +66,24 @@ def utc_periods(zone: tzinfo, year: int) -> list[tuple[int, int, int, bool]]:
     periods = []
     start = probe = lower
     offset = _offset(zone, lower)
+    fromtimestamp = datetime.fromtimestamp
 
     while probe < upper:
         following = min(probe + PROBE_STEP, upper)
-        following_offset = _offset(zone, following)
-        if following_offset != offset:
+        # The scan bounds already validate these integer timestamps.
+        local = fromtimestamp(following + 946684800, zone if zone is not None else UTC)
+        if zone is None:
+            local = local.astimezone(zone)
+        local_offset = local.utcoffset()
+        if type(local_offset) is timedelta and not local_offset.microseconds:
+            offset_seconds = local_offset.days * 86400 + local_offset.seconds
+        else:
+            offset_seconds = int(local_offset.total_seconds()) if local_offset else 0
+        following_dst = bool(local.dst())
+        if offset_seconds != offset[0] or following_dst != offset[1]:
             change = _first_change(zone, probe, following, offset)
             periods.append((start, change, *offset))
-            start, offset = change, following_offset
+            start, offset = change, (offset_seconds, following_dst)
         probe = following
 
     periods.append((start, upper, *offset))
