@@ -120,6 +120,13 @@ class Struct:
         cls._hash = -1
         cls._frozen = False
 
+        # Cache the user-defined properties that are displayed as `*prop=value`
+        cls._repr_properties = tuple(
+            attr
+            for attr in dir(cls)
+            if isinstance(getattr(cls, attr), property) and not hasattr(Struct, attr)
+        )
+
     def __new__(cls: type[Self], *args, **kwargs) -> Self:
         cls = cls._real_cls()  # noqa: PLW0642
 
@@ -442,21 +449,13 @@ class Struct:
         return extra_parts
 
     def __repr__(self) -> str:
-        fields = []
-
-        # Assigned fields are displayed as `field=value`
-        for f, v in self.assigned_fields():
-            fields.append(f"{f.name}={f.repr(v)}")
-
         cls = type(self)
 
+        # Assigned fields are displayed as `field=value`
+        fields = [f"{f.name}={f.repr(v)}" for f, v in self.assigned_fields()]
+
         # Properties are displayed as `*prop=value`
-        for attr in dir(cls):
-            cls_attr = getattr(cls, attr)
-
-            if not isinstance(cls_attr, property) or hasattr(Struct, attr):
-                continue
-
+        for attr in cls._repr_properties:
             value = getattr(self, attr)
 
             if value is not None:
@@ -468,7 +467,7 @@ class Struct:
         else:
             extra = ""
 
-        return f"{type(self).__name__}{extra}({', '.join(fields)})"
+        return f"{cls.__name__}{extra}({', '.join(fields)})"
 
     @property
     def is_valid(self) -> bool:
